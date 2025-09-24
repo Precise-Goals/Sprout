@@ -1,7 +1,16 @@
 "use client";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
+import { db } from "@lib/firebase";
+import { doc, getDoc } from "firebase/firestore";
 
-type AuthUser = { email: string; uid?: string; demo?: boolean };
+type AuthUser = {
+  email: string;
+  uid?: string;
+  demo?: boolean;
+  name?: string;
+  location?: { latitude?: number; longitude?: number };
+};
 type AuthResponse = {
   success: boolean;
   token?: string;
@@ -17,6 +26,7 @@ export const useAuth = () => {
   const [user, setUser] = useState<AuthUser | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const router = useRouter();
 
   // hydrate from storage
   useEffect(() => {
@@ -45,10 +55,29 @@ export const useAuth = () => {
         });
         const data: AuthResponse = await res.json();
         if (data.success && data.token) {
-          const nextUser: AuthUser = { email, uid: data.uid, demo: data.demo };
+          let nextUser: AuthUser = { email, uid: data.uid, demo: data.demo };
           localStorage.setItem(TOKEN_KEY, data.token);
           localStorage.setItem(USER_KEY, JSON.stringify(nextUser));
           setUser(nextUser);
+          // Try hydrate profile
+          if (data.uid) {
+            try {
+              const snap = await getDoc(doc(db, "farmers", data.uid));
+              if (snap.exists()) {
+                const profile = snap.data() as Partial<AuthUser>;
+                nextUser = {
+                  ...nextUser,
+                  name: (profile as any)?.name,
+                  location: (profile as any)?.location,
+                };
+                localStorage.setItem(USER_KEY, JSON.stringify(nextUser));
+                setUser(nextUser);
+              }
+            } catch {
+              // ignore profile fetch errors
+            }
+          }
+          router.push("/dashboard");
         } else if (!data.success) {
           setError(data.message || "Login failed");
         }
@@ -80,10 +109,21 @@ export const useAuth = () => {
         });
         const data: AuthResponse = await res.json();
         if (data.success && data.token) {
-          const nextUser: AuthUser = { email, uid: data.uid, demo: data.demo };
+          const profileUser = profile as {
+            name?: string;
+            location?: { latitude?: number; longitude?: number };
+          };
+          const nextUser: AuthUser = {
+            email,
+            uid: data.uid,
+            demo: data.demo,
+            name: profileUser?.name,
+            location: profileUser?.location,
+          };
           localStorage.setItem(TOKEN_KEY, data.token);
           localStorage.setItem(USER_KEY, JSON.stringify(nextUser));
           setUser(nextUser);
+          router.push("/dashboard");
         } else if (!data.success) {
           setError(data.message || "Signup failed");
         }

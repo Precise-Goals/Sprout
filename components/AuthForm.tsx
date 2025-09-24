@@ -1,6 +1,7 @@
 "use client";
 import { useState } from "react";
 import { useAuth } from "@hooks/useAuth";
+import { useRouter } from "next/navigation";
 
 export default function AuthForm() {
   const {
@@ -11,6 +12,7 @@ export default function AuthForm() {
     isAuthenticated,
     user,
   } = useAuth();
+  const router = useRouter();
   const [mode, setMode] = useState<"login" | "signup">("login");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -40,6 +42,7 @@ export default function AuthForm() {
       setError(
         res.message || (mode === "login" ? "Login failed" : "Signup failed")
       );
+    if (res.success) router.push("/dashboard");
   };
 
   return (
@@ -92,6 +95,24 @@ export default function AuthForm() {
               className="border p-2 rounded"
             />
           </div>
+          <button
+            type="button"
+            className="text-sm text-blue-600 underline justify-self-start"
+            onClick={() => {
+              if (!navigator?.geolocation)
+                return setError("Geolocation not supported");
+              setError("");
+              navigator.geolocation.getCurrentPosition(
+                (pos) => {
+                  setLatitude(String(pos.coords.latitude));
+                  setLongitude(String(pos.coords.longitude));
+                },
+                () => setError("Unable to get location")
+              );
+            }}
+          >
+            Use current location
+          </button>
         </div>
       )}
       <div className="flex items-center gap-2">

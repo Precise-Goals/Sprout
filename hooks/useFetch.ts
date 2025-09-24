@@ -1,5 +1,6 @@
 "use client";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+
+import { useCallback, useEffect, useState } from "react";
 
 type Params = Record<string, string | number | boolean | null | undefined>;
 
@@ -28,35 +29,35 @@ export function useFetch<T = unknown>(
   options: UseFetchOptions = {}
 ) {
   const { params, skip, headers, ...rest } = options;
+
   const [data, setData] = useState<T | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const refreshKey = useRef(0);
-
-  const requestUrl = useMemo(
-    () => (url ? buildUrl(url, params) : null),
-    [url, JSON.stringify(params)]
-  );
+  const [refreshCounter, setRefreshCounter] = useState(0);
 
   const refetch = useCallback(() => {
-    refreshKey.current += 1;
-    // trigger effect by updating a ref-backed state via no-op set
-    setLoading((l) => l); // no-op to keep API simple
+    setRefreshCounter((c) => c + 1);
   }, []);
 
   useEffect(() => {
+    const requestUrl = url ? buildUrl(url, params) : null;
     if (!requestUrl || skip) return;
+    let isMounted = true;
     const controller = new AbortController();
+
     const token =
       typeof window !== "undefined" ? localStorage.getItem(TOKEN_KEY) : null;
+
     const mergedHeaders = new Headers(headers || {});
     if (token && !mergedHeaders.has("Authorization")) {
       mergedHeaders.set("Authorization", `Bearer ${token}`);
     }
+
     if (
       !mergedHeaders.has("Content-Type") &&
       rest.method &&
-      rest.method !== "GET"
+      rest.method !== "GET" &&
+      !(rest.body instanceof FormData)
     ) {
       mergedHeaders.set("Content-Type", "application/json");
     }
@@ -75,21 +76,23 @@ export function useFetch<T = unknown>(
         const ct = res.headers.get("content-type") || "";
         return ct.includes("application/json") ? res.json() : res.text();
       })
-      .then((body) => setData(body as T))
-      .catch((e: unknown) => {
-        if ((e as any)?.name === "AbortError") return;
-        setError((e as { message?: string })?.message || "Request failed");
+      .then((body) => {
+        if (isMounted) setData(body as T);
       })
-      .finally(() => setLoading(false));
+      .catch((e: unknown) => {
+        if ((e as { name?: string })?.name === "AbortError") return;
+        if (isMounted)
+          setError((e as { message?: string })?.message || "Request failed");
+      })
+      .finally(() => {
+        if (isMounted) setLoading(false);
+      });
 
-    return () => controller.abort();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [
-    requestUrl,
-    skip,
-    refreshKey.current,
-    JSON.stringify({ ...rest, headers }),
-  ]);
+    return () => {
+      isMounted = false;
+      controller.abort();
+    };
+  }, [url, params, skip, refreshCounter, headers, rest]);
 
   return { data, loading, error, refetch } as const;
 }
