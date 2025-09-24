@@ -1,6 +1,8 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
+import Navbar from "@components/Navbar";
+import { FarmProvider } from "@/contexts/FarmContext";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -27,7 +29,12 @@ export default function RootLayout({
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >
-        {children}
+        <FarmProvider>
+          <div className="mx-auto max-w-6xl p-4">
+            <Navbar />
+            {children}
+          </div>
+        </FarmProvider>
       </body>
     </html>
   );

@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 
 type Params = Record<string, string | number | boolean | null | undefined>;
 
@@ -35,13 +35,41 @@ export function useFetch<T = unknown>(
   const [error, setError] = useState<string | null>(null);
   const [refreshCounter, setRefreshCounter] = useState(0);
 
-  const refetch = useCallback(() => {
-    setRefreshCounter((c) => c + 1);
-  }, []);
+  const refetch = () => setRefreshCounter((c) => c + 1);
+
+  // Build a simple dependency key to satisfy lint rules without extra hooks
+  const headersEntries = headers
+    ? Array.from(new Headers(headers).entries())
+    : [];
+  const bodyKey =
+    rest.body instanceof FormData
+      ? "formdata"
+      : typeof rest.body === "string"
+      ? rest.body
+      : rest.body
+      ? "body"
+      : "";
+  const depsKey = JSON.stringify({
+    url,
+    skip: !!skip,
+    params,
+    headersEntries,
+    method: rest.method || "",
+    mode: rest.mode || "",
+    credentials: rest.credentials || "",
+    cache: rest.cache || "",
+    redirect: rest.redirect || "",
+    referrer: rest.referrer || "",
+    referrerPolicy: rest.referrerPolicy || "",
+    integrity: rest.integrity || "",
+    keepalive: !!rest.keepalive,
+    bodyKey,
+  });
 
   useEffect(() => {
-    const requestUrl = url ? buildUrl(url, params) : null;
-    if (!requestUrl || skip) return;
+    if (!url || skip) return;
+
+    const requestUrl = buildUrl(url, params);
     let isMounted = true;
     const controller = new AbortController();
 
@@ -87,12 +115,11 @@ export function useFetch<T = unknown>(
       .finally(() => {
         if (isMounted) setLoading(false);
       });
-
     return () => {
       isMounted = false;
       controller.abort();
     };
-  }, [url, params, skip, refreshCounter, headers, rest]);
+  }, [depsKey, refreshCounter]);
 
   return { data, loading, error, refetch } as const;
 }
