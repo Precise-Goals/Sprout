@@ -6,10 +6,9 @@ import { useAuth } from "@hooks/useAuth";
 type NavItem = { href: string; label: string };
 
 const NAV_ITEMS: NavItem[] = [
+  { href: "/", label: "Home" },
   { href: "/dashboard", label: "Dashboard" },
-  { href: "/crops", label: "Crop Recommender" },
-  { href: "/irrigation", label: "Irrigation" },
-  { href: "/agro", label: "Agro-monitoring" },
+  { href: "/agro", label: "Agro Monitoring" },
   { href: "/chat", label: "Chat" },
   { href: "/voice", label: "Voice Assistant" },
 ];
@@ -18,18 +17,33 @@ export default function Navbar() {
   const pathname = usePathname();
   const { isAuthenticated, user, logout } = useAuth();
 
-  const isActive = (href: string) => pathname === href;
+  const isActive = (href: string) =>
+    href === "/" ? pathname === "/" : pathname.startsWith(href);
 
   return (
     <nav className="mb-4 flex flex-wrap items-center justify-between gap-2 rounded-lg border bg-white p-3 shadow-sm">
-      <div className="text-sm font-semibold">Sprout</div>
+      <Link
+        href="/"
+        className="text-sm font-semibold tracking-tight hover:opacity-90"
+      >
+        Sprout
+      </Link>
       <button
         className="block rounded border px-2 py-1 text-sm md:hidden"
         onClick={() => {
           const el = document.getElementById("sprout-nav-links");
           if (el) el.classList.toggle("hidden");
+          const expanded =
+            document
+              .getElementById("sprout-nav-toggle")
+              ?.getAttribute("aria-expanded") === "true";
+          document
+            .getElementById("sprout-nav-toggle")
+            ?.setAttribute("aria-expanded", (!expanded).toString());
         }}
         aria-label="Toggle navigation"
+        id="sprout-nav-toggle"
+        aria-expanded="false"
       >
         Menu
       </button>
@@ -47,6 +61,7 @@ export default function Navbar() {
                   ? "bg-emerald-600 text-white"
                   : "border hover:bg-gray-50"
               }`}
+              aria-current={isActive(item.href) ? "page" : undefined}
               onClick={() => {
                 const el = document.getElementById("sprout-nav-links");
                 if (el && window.innerWidth < 768) el.classList.add("hidden");
@@ -72,7 +87,7 @@ export default function Navbar() {
           ) : (
             <Link
               href="/"
-              className="rounded border px-3 py-1 text-sm hover:bg-gray-50"
+              className="rounded bg-emerald-600 px-3 py-1 text-sm font-medium text-white hover:bg-emerald-700"
             >
               Sign in
             </Link>

@@ -8,11 +8,32 @@ type MapMarker = {
   label?: string;
 };
 
+type MapCircle = {
+  id?: string;
+  latitude: number;
+  longitude: number;
+  radiusMeters: number; // e.g., 1000 for 1 km
+  color?: string;
+  label?: string;
+};
+
+type MapPolygon = {
+  id?: string;
+  points: Array<{ latitude: number; longitude: number }>;
+  color?: string;
+  label?: string;
+};
+
 type MapProps = {
-  markers: MapMarker[];
+  markers?: MapMarker[];
+  circles?: MapCircle[];
+  polygons?: MapPolygon[];
   zoom?: number;
   className?: string;
   height?: number | string; // e.g., 320 or "300px" or "50vh"
+  tileProvider?: "osm" | "opentopo" | "terrain" | "esri" | "maptiler"; // terrain uses OpenTopo
+  terrainOverlay?: boolean; // add hillshade/terrain overlay
+  onPolygonClick?: (polygonId?: string) => void;
 };
 
 // Load Leaflet from CDN to avoid adding dependencies
@@ -69,19 +90,26 @@ function ensureLeafletLoaded(): Promise<any> {
 }
 
 export default function Map({
-  markers,
+  markers = [],
+  circles = [],
+  polygons = [],
   zoom = 11,
   className,
   height = 320,
+  tileProvider = "opentopo",
+  terrainOverlay = false,
+  onPolygonClick,
 }: MapProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<any>(null);
   const layerRef = useRef<any>(null);
+  const tileLayerRef = useRef<any>(null);
+  const overlayRef = useRef<any>(null);
 
   const center = useMemo(() => {
-    const first = markers?.[0];
+    const first = markers?.[0] || circles?.[0];
     return first ? [first.latitude, first.longitude] : [0, 0];
-  }, [markers]);
+  }, [markers, circles]);
 
   useEffect(() => {
     let canceled = false;
@@ -90,15 +118,80 @@ export default function Map({
         if (canceled || !containerRef.current) return;
         if (!mapRef.current) {
           mapRef.current = L.map(containerRef.current).setView(center, zoom);
-          L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-            attribution: "&copy; OpenStreetMap contributors",
-            maxZoom: 19,
-          }).addTo(mapRef.current);
         } else {
           mapRef.current.setView(center, zoom);
         }
 
-        // Reset markers layer
+        const providers: Record<string, { url: string; options: any }> = {
+          osm: {
+            url: "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",
+            options: {
+              attribution: "&copy; OpenStreetMap contributors",
+              maxZoom: 19,
+            },
+          },
+          opentopo: {
+            url: "https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png",
+            options: {
+              attribution:
+                "Map data: &copy; OpenStreetMap contributors, SRTM | Map style: &copy; OpenTopoMap (CC-BY-SA)",
+              maxZoom: 17,
+            },
+          },
+          terrain: {
+            url: "https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png",
+            options: {
+              attribution:
+                "Map data: &copy; OpenStreetMap contributors, SRTM | Map style: &copy; OpenTopoMap (CC-BY-SA)",
+              maxZoom: 17,
+            },
+          },
+          esri: {
+            // ESRI World Imagery (satellite)
+            url: "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
+            options: {
+              attribution: "Tiles &copy; Esri",
+              maxZoom: 19,
+            },
+          },
+          maptiler: {
+            // MapTiler Satellite (requires key via NEXT_PUBLIC_MAPTILER_KEY)
+            url: `https://api.maptiler.com/tiles/satellite/{z}/{x}/{y}.jpg?key=${
+              process.env.NEXT_PUBLIC_MAPTILER_KEY || ""
+            }`,
+            options: {
+              attribution: "&copy; MapTiler & OpenStreetMap contributors",
+              maxZoom: 20,
+            },
+          },
+        };
+
+        const selected = providers[tileProvider] || providers.osm;
+        if (tileLayerRef.current) {
+          mapRef.current.removeLayer(tileLayerRef.current);
+          tileLayerRef.current = null;
+        }
+        tileLayerRef.current = L.tileLayer(selected.url, selected.options);
+        tileLayerRef.current.addTo(mapRef.current);
+
+        // Optional terrain/hillshade overlay (ESRI World Hillshade)
+        if (overlayRef.current) {
+          mapRef.current.removeLayer(overlayRef.current);
+          overlayRef.current = null;
+        }
+        if (terrainOverlay) {
+          overlayRef.current = L.tileLayer(
+            "https://server.arcgisonline.com/ArcGIS/rest/services/Elevation/World_Hillshade/MapServer/tile/{z}/{y}/{x}",
+            {
+              attribution: "Hillshade &copy; Esri",
+              maxZoom: 19,
+              opacity: 0.6,
+            }
+          );
+          overlayRef.current.addTo(mapRef.current);
+        }
+
+        // Reset markers/circles layer
         if (layerRef.current) {
           layerRef.current.clearLayers();
         } else {
@@ -111,11 +204,42 @@ export default function Map({
           marker.addTo(layerRef.current);
         });
 
-        // Fit bounds if multiple markers
-        if (markers && markers.length > 1) {
-          const bounds = L.latLngBounds(
-            markers.map((m) => [m.latitude, m.longitude] as [number, number])
-          );
+        circles?.forEach((c) => {
+          const circle = L.circle([c.latitude, c.longitude], {
+            radius: c.radiusMeters,
+            color: c.color || "#059669", // emerald-600
+            weight: 2,
+            fillColor: c.color || "#059669",
+            fillOpacity: 0.1,
+          });
+          if (c.label) circle.bindPopup(c.label);
+          circle.addTo(layerRef.current);
+        });
+
+        polygons?.forEach((p) => {
+          const latlngs = p.points.map((pt) => [pt.latitude, pt.longitude]);
+          const poly = L.polygon(latlngs as any, {
+            color: p.color || "#2563eb", // blue-600
+            weight: 2,
+            fillColor: p.color || "#2563eb",
+            fillOpacity: 0.1,
+          });
+          if (p.label) poly.bindPopup(p.label);
+          if (onPolygonClick) {
+            poly.on("click", () => onPolygonClick(p.id));
+          }
+          poly.addTo(layerRef.current);
+        });
+
+        // Fit bounds if multiple overlays
+        const points: [number, number][] = [];
+        markers?.forEach((m) => points.push([m.latitude, m.longitude]));
+        circles?.forEach((c) => points.push([c.latitude, c.longitude]));
+        polygons?.forEach((p) =>
+          p.points.forEach((pt) => points.push([pt.latitude, pt.longitude]))
+        );
+        if (points.length > 1) {
+          const bounds = L.latLngBounds(points);
           mapRef.current.fitBounds(bounds.pad(0.2));
         }
       })
@@ -126,7 +250,16 @@ export default function Map({
     return () => {
       canceled = true;
     };
-  }, [center[0], center[1], zoom, JSON.stringify(markers)]);
+  }, [
+    center[0],
+    center[1],
+    zoom,
+    JSON.stringify(markers),
+    JSON.stringify(circles),
+    JSON.stringify(polygons),
+    tileProvider,
+    terrainOverlay,
+  ]);
 
   const containerStyle = useMemo(() => {
     const h = typeof height === "number" ? `${height}px` : height;
